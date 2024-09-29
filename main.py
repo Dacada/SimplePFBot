@@ -1,6 +1,6 @@
 import argparse
 import os
-from observability import get_logger
+from observability import setup_logging
 from bot import DiscordClient, MessageUpdater, MessageUpdate
 from scrape import filter_listings, scrape_listings
 from config import (
@@ -10,9 +10,10 @@ from config import (
     Config,
     ListingConfig,
 )
+import logging
 
 
-logger = get_logger("main")
+logger = logging.getLogger("main")
 
 
 class PfMessageUpdater(MessageUpdater):
@@ -41,11 +42,6 @@ class PfMessageUpdater(MessageUpdater):
                 configured_listing.duty_name,
             )
             yield update
-
-
-def create_default_config(config_path: str):
-    config = default_config()
-    save_config(config, config_path)
 
 
 def create_listing_message(config_path: str, config: Config):
@@ -87,7 +83,7 @@ def create_listing_message(config_path: str, config: Config):
         pf_data, configured_listing.duty_name, configured_listing.data_centre
     )
 
-    client = DiscordClient(config.token)
+    client = DiscordClient(config.token, config.embed_custom)
     message_id = client.run_send_message(
         configured_listing.channel_id, listings, duty_name
     )
@@ -105,7 +101,7 @@ def create_listing_message(config_path: str, config: Config):
 
 def run_bot(config: Config):
     updater = PfMessageUpdater(config)
-    client = DiscordClient(config.token)
+    client = DiscordClient(config.token, config.embed_custom)
     client.run_update_messages_periodically(updater, config.period)
 
 
@@ -131,12 +127,14 @@ def main() -> int:
             "config for the user to fill out."
         ),
     )
-
     args = parser.parse_args()
+
+    config = default_config()
+    setup_logging(config.logging.level, config.logging.file)
 
     if args.setup_config:
         logger.info(f"Creating a default config on {args.config_path}")
-        create_default_config(args.config_path)
+        save_config(config, args.config_path)
         return 0
 
     if not os.path.exists(args.config_path):

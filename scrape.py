@@ -2,7 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 from enum import Enum
 from dataclasses import dataclass
-from observability import get_logger
+import logging
 
 
 class SlotState(Enum):
@@ -20,6 +20,16 @@ class SlotType(Enum):
 class DutyType(Enum):
     CROSS = "cross"
     LOCAL = "local"
+
+
+class RoleType(Enum):
+    TANK = "TANK"
+    REGEN_HEALER = "REGEN_HEALER"
+    SHIELD_HEALER = "SHIELD_HEALER"
+    MELEE_DPS = "MELEE_DPS"
+    RANGED_DPS = "RANGED_DPS"
+    MAGICAL_DPS = "MAGICAL_DPS"
+    OTHER = "OTHER"
 
 
 class Role(Enum):
@@ -66,6 +76,102 @@ class Role(Enum):
     ALC = "ALC"
     CUL = "CUL"
 
+    def get_role_type(self) -> RoleType:
+        role_to_type = {
+            Role.GLA: RoleType.TANK,
+            Role.PLD: RoleType.TANK,
+            Role.MRD: RoleType.TANK,
+            Role.WAR: RoleType.TANK,
+            Role.DRK: RoleType.TANK,
+            Role.GNB: RoleType.TANK,
+            Role.CNJ: RoleType.REGEN_HEALER,
+            Role.WHM: RoleType.REGEN_HEALER,
+            Role.SCH: RoleType.SHIELD_HEALER,
+            Role.AST: RoleType.REGEN_HEALER,
+            Role.SGE: RoleType.SHIELD_HEALER,
+            Role.PGL: RoleType.MELEE_DPS,
+            Role.MNK: RoleType.MELEE_DPS,
+            Role.LNC: RoleType.MELEE_DPS,
+            Role.DRG: RoleType.MELEE_DPS,
+            Role.ARC: RoleType.RANGED_DPS,
+            Role.BRD: RoleType.RANGED_DPS,
+            Role.THM: RoleType.MAGICAL_DPS,
+            Role.BLM: RoleType.MAGICAL_DPS,
+            Role.ACN: RoleType.MAGICAL_DPS,
+            Role.SMN: RoleType.MAGICAL_DPS,
+            Role.ROG: RoleType.MELEE_DPS,
+            Role.NIN: RoleType.MELEE_DPS,
+            Role.MCH: RoleType.RANGED_DPS,
+            Role.SAM: RoleType.MELEE_DPS,
+            Role.RDM: RoleType.MAGICAL_DPS,
+            Role.BLU: RoleType.MAGICAL_DPS,
+            Role.DNC: RoleType.RANGED_DPS,
+            Role.RPR: RoleType.MELEE_DPS,
+            Role.VPR: RoleType.MELEE_DPS,
+            Role.PCT: RoleType.MAGICAL_DPS,
+            Role.BTN: RoleType.OTHER,
+            Role.MIN: RoleType.OTHER,
+            Role.FSH: RoleType.OTHER,
+            Role.CRP: RoleType.OTHER,
+            Role.BSM: RoleType.OTHER,
+            Role.ARM: RoleType.OTHER,
+            Role.GSM: RoleType.OTHER,
+            Role.LTW: RoleType.OTHER,
+            Role.WVR: RoleType.OTHER,
+            Role.ALC: RoleType.OTHER,
+            Role.CUL: RoleType.OTHER,
+        }
+
+        return role_to_type.get(self, RoleType.OTHER)
+
+    def get_slot_type(self) -> SlotType:
+        role_to_slot = {
+            Role.GLA: SlotType.TANK,
+            Role.PLD: SlotType.TANK,
+            Role.MRD: SlotType.TANK,
+            Role.WAR: SlotType.TANK,
+            Role.DRK: SlotType.TANK,
+            Role.GNB: SlotType.TANK,
+            Role.CNJ: SlotType.HEALER,
+            Role.WHM: SlotType.HEALER,
+            Role.SCH: SlotType.HEALER,
+            Role.AST: SlotType.HEALER,
+            Role.SGE: SlotType.HEALER,
+            Role.PGL: SlotType.DPS,
+            Role.MNK: SlotType.DPS,
+            Role.LNC: SlotType.DPS,
+            Role.DRG: SlotType.DPS,
+            Role.ARC: SlotType.DPS,
+            Role.BRD: SlotType.DPS,
+            Role.THM: SlotType.DPS,
+            Role.BLM: SlotType.DPS,
+            Role.ACN: SlotType.DPS,
+            Role.SMN: SlotType.DPS,
+            Role.ROG: SlotType.DPS,
+            Role.NIN: SlotType.DPS,
+            Role.MCH: SlotType.DPS,
+            Role.SAM: SlotType.DPS,
+            Role.RDM: SlotType.DPS,
+            Role.BLU: SlotType.DPS,
+            Role.DNC: SlotType.DPS,
+            Role.RPR: SlotType.DPS,
+            Role.VPR: SlotType.DPS,
+            Role.PCT: SlotType.DPS,
+            Role.BTN: SlotType.OTHER,
+            Role.MIN: SlotType.OTHER,
+            Role.FSH: SlotType.OTHER,
+            Role.CRP: SlotType.OTHER,
+            Role.BSM: SlotType.OTHER,
+            Role.ARM: SlotType.OTHER,
+            Role.GSM: SlotType.OTHER,
+            Role.LTW: SlotType.OTHER,
+            Role.WVR: SlotType.OTHER,
+            Role.ALC: SlotType.OTHER,
+            Role.CUL: SlotType.OTHER,
+        }
+
+        return role_to_slot.get(self, SlotType.OTHER)
+
 
 class DataCentre(Enum):
     CRYSTAL = "Crystal"
@@ -97,6 +203,7 @@ class PfCategory(Enum):
     TRIALS = "Trials"
     ADVENTURING_FORAYS = "AdventuringForays"
     GUILDHESTS = "Guildhests"
+    GOLD_SAUCER = "GoldSaucer"
 
 
 @dataclass
@@ -135,7 +242,7 @@ def filter_listings(
 
 
 def scrape_listings(url: str) -> list[Listing]:
-    logger = get_logger("scraper")
+    logger = logging.getLogger("scraper")
 
     response = requests.get(url)
     try:

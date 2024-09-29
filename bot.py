@@ -5,8 +5,9 @@ from dataclasses import dataclass
 import traceback
 import discord
 import asyncio
-from observability import get_logger, ColoredFormatter
-from scrape import Listing, PartySlot, SlotState, SlotType, Role
+import logging
+from scrape import Listing, PartySlot, SlotState, SlotType, RoleType, Role
+from config import EmbedCustomization
 
 
 @dataclass
@@ -34,11 +35,12 @@ class MessageUpdater(ABC):
 
 
 class DiscordClient:
-    def __init__(self, token: str):
+    def __init__(self, token: str, embed_custom: EmbedCustomization):
         intents = discord.Intents.default()
         self.client = discord.Client(intents=intents)
         self.token = token
-        self.logger = get_logger("bot")
+        self.embed_custom = embed_custom
+        self.logger = logging.getLogger("bot")
         self.result = None
 
     def run_send_message(
@@ -72,7 +74,7 @@ class DiscordClient:
         self._run()
 
     def _run(self):
-        self.client.run(self.token, log_formatter=ColoredFormatter())
+        self.client.run(self.token, log_handler=None)
         return self.result
 
     async def _send_message(
@@ -128,11 +130,11 @@ class DiscordClient:
         if not listings:
             return discord.Embed(
                 title=title,
-                color=0xB7406A,
-                description="No party finders! Please, open one! 😡",
+                color=self.embed_custom.color,
+                description=self.embed_custom.no_party_finders_message,
             )
 
-        embed = discord.Embed(title=title, color=0xB7406A)
+        embed = discord.Embed(title=title, color=self.embed_custom.color)
 
         for i, listing in enumerate(
             sorted(listings, reverse=True, key=lambda x: x.expires)
@@ -146,7 +148,10 @@ class DiscordClient:
 
             embed.add_field(name=listing.creator, value=party, inline=True)
             embed.add_field(name=tags, value=desc, inline=True)
-            embed.add_field(name=listing.updated, value=listing.expires)
+            embed.add_field(
+                name=f"{self.embed_custom.updated_emoji} {listing.updated}",
+                value=f"{self.embed_custom.expires_emoji} {listing.expires}",
+            )
 
             if len(embed) > 6000:
                 embed.remove_field(-1)
@@ -179,7 +184,7 @@ class DiscordClient:
         return tags, desc
 
     def _emojify_party(self, party: list[PartySlot]) -> str:
-        return "".join(self._get_emoji_by_party_slot(slot) for slot in party)
+        return " ".join(self._get_emoji_by_party_slot(slot) for slot in party)
 
     def _get_emoji_by_party_slot(self, slot: PartySlot) -> str:
         if slot.state == SlotState.FILLED:
@@ -187,29 +192,105 @@ class DiscordClient:
                 self.logger.warn(
                     "No roles for a filled slot? Will use slot type instead."
                 )
-                return self._get_emoji_by_slot_type(slot.slot_type, slot.roles)
+                return self._get_emoji_filled_by_slot_type(slot.slot_type)
             if len(slot.roles) > 1:
                 self.logger.warn(
                     "More than one role for a filled slot? Will use first role"
                 )
-            return self._get_emoji_by_role(slot.roles[0])
+            return self._get_emoji_filled(slot.roles[0])
         elif slot.state == SlotState.OPEN:
-            return self._get_emoji_by_slot_type(slot.slot_type, slot.roles)
+            return self._get_emoji_open(slot.roles)
 
-    def _get_emoji_by_slot_type(
-        self, slot_type: SlotType, roles: list[Role]
-    ) -> str:
+    def _get_emoji_open(self, roles: list[Role]) -> str:
+        if not roles:
+            return self.embed_custom.free_slots.other
+
+        emoji = self._get_emoji_open_from_single_role(roles)
+        if emoji is not None:
+            return emoji
+
+        emoji = self._get_emoji_open_from_role_types(roles)
+        if emoji is not None:
+            return emoji
+
+        emoji = self._get_emoji_open_from_slot_types(roles)
+        if emoji is not None:
+            return emoji
+
+        # fallback
+        self.logger.warning(
+            f"Cannot identify emoji for role combination: {roles}"
+        )
+        return self.embed_custom.free_slots.other
+
+    def _get_emoji_open_from_single_role(self, roles: list[Role]) -> Optional[str]:
+        if len(roles) == 1:
+            return getattr(self.embed_custom.free_slots, roles[0].value.lower(), None)
+        return None
+
+    def _get_emoji_open_from_role_types(self, roles: list[Role]) -> Optional[str]:
+        role_types = set(x.get_role_type() for x in roles)
+
+        if RoleType.OTHER in role_types:
+            return self.embed_custom.free_slots.other
+
+        if len(role_types) == 1:
+            emoji = getattr(
+                self.embed_custom.free_slots,
+                next(iter(role_types)).value.lower(),
+                None,
+            )
+            return emoji
+
+        return None
+
+    def _get_emoji_open_from_slot_types(self, roles: list[Role]) -> Optional[str]:
+        slot_types = set(x.get_slot_type() for x in roles)
+
+        if SlotType.OTHER in slot_types:
+            return self.embed_custom.free_slots.other
+
+        if len(slot_types) == 1:
+            emoji = getattr(
+                self.embed_custom.free_slots,
+                next(iter(slot_types)).value.lower(),
+                None,
+            )
+            if emoji is not None:
+                return emoji
+
+        if len(slot_types) == 2:
+            if SlotType.DPS in slot_types:
+                if SlotType.HEALER in slot_types:
+                    return self.embed_custom.free_slots.dps_healer
+                if SlotType.TANK in slot_types:
+                    return self.embed_custom.free_slots.dps_tank
+            if (
+                SlotType.HEALER in slot_types
+                and SlotType.TANK in slot_types
+            ):
+                return self.embed_custom.free_slots.healer_tank
+
+        if len(slot_types) == 3:
+            return self.embed_custom.free_slots.dps_healer_tank
+
+        return None
+
+    def _get_emoji_filled_by_slot_type(self, slot_type: SlotType) -> str:
         if slot_type == SlotType.DPS:
-            return "❤️"
-        elif slot_type == SlotType.HEALER:
-            return "💚"
-        elif slot_type == SlotType.TANK:
-            return "💙"
-        else:
-            return "🩶"
+            return self._get_emoji_filled(Role.MNK)
+        if slot_type == SlotType.HEALER:
+            return self._get_emoji_filled(Role.WHM)
+        if slot_type == SlotType.TANK:
+            return self._get_emoji_filled(Role.PLD)
+        return self.embed_custom.filled_slots.other
 
-    def _get_emoji_by_role(self, role: Role) -> str:
-        return "💖"
+    def _get_emoji_filled(self, role: Role) -> str:
+        return getattr(
+            self.embed_custom.filled_slots,
+            role.value.lower(),
+            self.embed_custom.filled_slots.other,
+        )
 
 
 def main() -> int:
@@ -300,4 +381,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    exit(main())
     exit(main())

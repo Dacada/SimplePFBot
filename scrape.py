@@ -3,6 +3,7 @@ from bs4 import BeautifulSoup
 from enum import Enum
 from dataclasses import dataclass
 import logging
+import re
 
 
 class SlotState(Enum):
@@ -369,7 +370,37 @@ def scrape_listings(url: str) -> list[Listing]:
         )
         listings.append(listing)
 
-    return listings
+    return filter_latest_listings(listings)
+
+
+def parse_minutes(updated: str) -> int:
+    """
+    Converts the updated string to minutes.
+    """
+    if "hour" in updated:
+        return 60
+    minutes_match = re.search(r"(\d+) minutes?", updated)
+    return int(minutes_match.group(1)) if minutes_match else 0
+
+
+def filter_latest_listings(listings: list[Listing]) -> list[Listing]:
+    """
+    Filter listings to keep only the most recent entry for each creator.
+    """
+    latest_listings = {}
+
+    for listing in listings:
+        minutes = parse_minutes(listing.updated)
+
+        if (
+            listing.creator not in latest_listings
+            or parse_minutes(latest_listings[listing.creator].updated)
+            > minutes
+        ):
+            latest_listings[listing.creator] = listing
+
+    # Return the most recent listings for each creator
+    return list(latest_listings.values())
 
 
 # Example usage
